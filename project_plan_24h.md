@@ -71,7 +71,7 @@ MVP:
 - [x] Первый запрос к LLM прошёл через AI Studio API.
 - [x] Биллинг и лимиты AI Studio проверены после первого запроса.
 
-### 1:30–3:00 SQLite — ✅ выполнено, см. `Plan-sqlite.md`
+### 1:30–3:00 SQLite — ✅ выполнено, см. `docs/archive/Plan-sqlite.md`
 - [x] `data/bot.sqlite3` и таблицы `leads`/`feedback` создаются автоматически при старте (`db.py:init_db`).
 - [x] Обычная заявка сохраняется в SQLite (`db.py:insert_lead`, проверено self-test и ручным вызовом с `source="bot_flow"`).
 - [x] Обратная связь сохраняется отдельно от заявок (`db.py:insert_feedback`, независимый счёт строк подтверждён self-test).
