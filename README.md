@@ -55,5 +55,5 @@
 
 - **Interface** — простая веб-страница чата: главное меню из 5 пунктов, поле свободного текстового ввода, история сообщений (подробности экранов и логики — `docs/bot-ux-flow.md`).
 - **Backend** — один Python runtime (FastAPI + uvicorn), обработка bot-flow и маршрутизация к ИИ-консультанту.
-- **Database** — SQLite (`data/bot.sqlite3`), таблицы `leads` и `feedback` с различимым `source` (`bot_flow` / `ai_consultant`).
+- **Database** — `db.py`, SQLite (`data/bot.sqlite3`, автосоздание при старте), таблицы `leads` и `feedback` с различимым `source` (`bot_flow` / `ai_consultant`).
 - **Agent** — `ai_client.py`, `agent_runtime.py`, `agent/tools.py` (`search_knowledge`, `read_knowledge_file`, `prepare_lead_draft`, `save_confirmed_lead`), `agent/soul.md`.
