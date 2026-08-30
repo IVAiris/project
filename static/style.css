@@ -126,18 +126,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  max-width: 85%;
+  width: 100%;
 }
 
-.turn--bot {
-  align-self: flex-start;
-}
-
-.turn--user {
-  align-self: flex-end;
-}
-
+/* max-width ограничивает только реплику (пузырь), не кнопки под ней —
+   иначе широкий ряд кнопок (например, 3 услуги в одну строку) сужается
+   до ширины сообщения и переносится на вторую строку. */
 .bubble {
+  max-width: 85%;
   background: var(--jr-surface);
   border: 1px solid var(--jr-border);
   border-radius: var(--radius);
@@ -145,6 +141,14 @@ body {
   font-size: 15px;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.turn--bot .bubble {
+  align-self: flex-start;
+}
+
+.turn--user .bubble {
+  align-self: flex-end;
 }
 
 .bubble.is-error {
@@ -157,7 +161,17 @@ body {
   gap: var(--space-2);
 }
 
-.btn--wide {
+/* Кнопки делят строку поровну и переносят текст внутри себя вместо того,
+   чтобы сайзиться по полному тексту — иначе длинные подписи услуг
+   (например, "152-ФЗ (персональные данные)") иногда не помещаются в
+   одну строку по чистой ширине и последняя кнопка переносится вниз. */
+.turn__buttons .btn {
+  flex: 1 1 160px;
+  white-space: normal;
+  text-align: center;
+}
+
+.turn__buttons .btn--wide {
   flex-basis: 100%;
 }
 
