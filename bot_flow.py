@@ -151,6 +151,10 @@ def handle_lead_input(state: dict, session_id: str, user_input: str) -> tuple[di
     step = state["step"]
     data = dict(state["data"])  # копия — не мутируем входной state (контракт: чистая функция)
 
+    if user_input == "back":
+        # Доступно на каждом шаге визарда (docs/maket/) — полный сброс черновика.
+        return _new_state(None), "Заявка отменена. Черновик не сохранён."
+
     if step == "lead_service":
         try:
             get_service_card(user_input)
@@ -199,8 +203,6 @@ def handle_lead_input(state: dict, session_id: str, user_input: str) -> tuple[di
         if user_input == "refine":
             data["problem_text"] = None
             return {"step": "lead_problem", "data": data}, "Опишите суть вопроса ещё раз."
-        if user_input == "back":
-            return _new_state(None), "Заявка отменена. Черновик не сохранён."
         return state, "Выберите одно из действий: «Оставить заявку», «Уточнить вопрос», «Вернуться на предыдущий экран»."
 
     return state, handle_unknown_input()
@@ -216,39 +218,30 @@ def _build_summary(state: dict) -> str:
     )
 
 
-def start_feedback_flow() -> dict:
-    return _new_state("feedback_name")
+def submit_feedback(
+    session_id: str, contact_name: str, contact_email: str, message_text: str
+) -> tuple[bool, dict[str, str]]:
+    """Одновременная отправка формы обратной связи (docs/maket/, Страница 5) —
+    заменяет последовательный опрос по одному полю. Возвращает (успех, поле->ошибка);
+    при успехе errors пуст и запись уже сохранена в feedback."""
+    errors: dict[str, str] = {}
+    if len(contact_name.strip()) < 2:
+        errors["contact_name"] = "Имя должно содержать не менее 2 символов."
+    if not _EMAIL_RE.match(contact_email.strip()):
+        errors["contact_email"] = "Некорректный формат почты."
+    if not message_text.strip():
+        errors["message_text"] = "Отзыв не может быть пустым."
 
+    if errors:
+        return False, errors
 
-def handle_feedback_input(state: dict, session_id: str, user_input: str) -> tuple[dict, str]:
-    step = state["step"]
-    data = dict(state["data"])  # копия — не мутируем входной state (контракт: чистая функция)
-
-    if step == "feedback_name":
-        if len(user_input.strip()) < 2:
-            return state, "Имя должно содержать не менее 2 символов. Как к Вам обращаться?"
-        data["contact_name"] = user_input.strip()
-        return {"step": "feedback_email", "data": data}, "Укажите эл. почту."
-
-    if step == "feedback_email":
-        if not _EMAIL_RE.match(user_input.strip()):
-            return state, "Некорректный формат почты. Укажите эл. почту."
-        data["contact_email"] = user_input.strip()
-        return {"step": "feedback_message", "data": data}, "Оставьте Ваш отзыв."
-
-    if step == "feedback_message":
-        if not user_input.strip():
-            return state, "Отзыв не может быть пустым. Оставьте Ваш отзыв."
-        data["feedback_message"] = user_input.strip()
-        db.insert_feedback(
-            session_id=session_id,
-            contact_name=data["contact_name"],
-            contact_email=data["contact_email"],
-            message_text=data["feedback_message"],
-        )
-        return _new_state(None), "Ваш отзыв направлен и будет рассмотрен."
-
-    return state, handle_unknown_input()
+    db.insert_feedback(
+        session_id=session_id,
+        contact_name=contact_name.strip(),
+        contact_email=contact_email.strip(),
+        message_text=message_text.strip(),
+    )
+    return True, {}
 
 
 if __name__ == "__main__":
@@ -306,13 +299,22 @@ if __name__ == "__main__":
         state, _ = handle_lead_input(state, "s3", "submit")
         print("[selftest] lead refine+submit:", state["step"] is None)
 
-        # feedback: полный путь
-        state = start_feedback_flow()
-        state, _ = handle_feedback_input(state, "s4", "Тест Тестов")
-        state, _ = handle_feedback_input(state, "s4", "test@example.com")
-        state, msg = handle_feedback_input(state, "s4", "Отличный бот!")
-        print("[selftest] feedback:", msg)
+        # back на самом первом шаге (выбор услуги) — тоже должен полностью сбрасывать
+        state = start_lead_flow(None)
+        state, msg = handle_lead_input(state, "s5", "back")
+        print("[selftest] lead back at lead_service:", msg)
         assert state["step"] is None
+
+        # feedback: форма одновременной отправки — сначала невалидная попытка
+        ok, errors = submit_feedback("s4", "А", "bad-email", "")
+        assert ok is False
+        assert set(errors.keys()) == {"contact_name", "contact_email", "message_text"}
+        print("[selftest] feedback validation errors:", errors)
+
+        # feedback: успешная отправка
+        ok, errors = submit_feedback("s4", "Тест Тестов", "test@example.com", "Отличный бот!")
+        assert ok is True and errors == {}
+        print("[selftest] feedback submit: OK")
 
         conn = db.get_connection(TEST_DB_PATH)
         try:
