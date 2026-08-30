@@ -18,13 +18,21 @@ app = FastAPI()
 
 SESSIONS: dict[str, dict] = {}
 
+
+def _back_button(value: str = "services") -> dict:
+    # is_back — фронтенд ограничивает ширину этой кнопки ~1/3 строки
+    # (как если бы в ряду было 3 равные кнопки), а не растягивает её на
+    # всю доступную ширину наравне с остальными (см. static/style.css).
+    return {"label": "Вернуться на предыдущий экран", "value": value, "is_back": True}
+
+
 AI_UNAVAILABLE_REPLY = (
     "Сейчас ИИ-консультант временно недоступен. Пожалуйста, воспользуйтесь "
     "меню услуг или попробуйте повторить ввод через пару минут."
 )
 AI_UNAVAILABLE_BUTTONS = [
     {"label": "Повторить ввод", "value": "ai"},
-    {"label": "Вернуться на предыдущий экран", "value": "services"},
+    _back_button("services"),
 ]
 
 FAQ_SERVICE_HOWTO = (
@@ -91,7 +99,7 @@ def _render_services() -> tuple[str, list[dict]]:
 
 def _service_card_buttons(key: str, active: str | None) -> list[dict]:
     return [
-        {"label": "Вернуться на предыдущий экран", "value": "services"},
+        _back_button("services"),
         {
             "label": "Регламентный срок",
             "value": f"service:{key}:deadline",
@@ -133,7 +141,7 @@ def _render_faq() -> tuple[str, list[dict], list[dict]]:
     items.append({"title": "Правила и контакты", "body": rules_body})
 
     reply = "FAQ — выберите раздел ниже."
-    buttons = [{"label": "Вернуться на предыдущий экран", "value": "services"}]
+    buttons = [_back_button("services")]
     return reply, buttons, items
 
 
@@ -144,9 +152,9 @@ def _buttons_for_lead_step(step: str | None) -> list[dict]:
         return [
             {"label": "Оставить заявку", "value": "submit"},
             {"label": "Уточнить вопрос", "value": "refine"},
-            {"label": "Вернуться на предыдущий экран", "value": "back"},
+            _back_button("back"),
         ]
-    return [{"label": "Вернуться на предыдущий экран", "value": "back"}]
+    return [_back_button("back")]
 
 
 def _handle_main_menu(
@@ -174,7 +182,7 @@ def _handle_main_menu(
             {"label": service["short_name"], "value": service["key"]}
             for service in bot_flow.get_services()
         ]
-        buttons.append({"label": "Вернуться на предыдущий экран", "value": "back"})
+        buttons.append(_back_button("back"))
         return "Выберите услугу.", buttons, False, None, None
     if user_input.startswith("lead:"):
         key = user_input.split(":", 1)[1]

@@ -16,6 +16,18 @@
   let sessionId = null;
   let currentMode = "main_menu";
 
+  // Кнопки/поля активны только под самым последним сообщением — как только
+  // рендерится новый раунд диалога, элементы предыдущего раунда навсегда
+  // блокируются (не просто временно на время запроса, как раньше).
+  let activeInteractive = null;
+
+  function lockActiveInteractive() {
+    if (!activeInteractive) return;
+    activeInteractive.querySelectorAll("button, input, textarea").forEach((el) => {
+      el.disabled = true;
+    });
+  }
+
   function buildButtonsEl(buttons, onClick) {
     const wrap = document.createElement("div");
     wrap.className = "turn__buttons";
@@ -24,6 +36,9 @@
       btn.className = "btn" + (button.wide ? " btn--wide" : "");
       if (button.is_active) {
         btn.classList.add("is-active");
+      }
+      if (button.is_back) {
+        btn.classList.add("btn--back");
       }
       btn.type = "button";
       btn.textContent = button.label;
@@ -110,7 +125,7 @@
     const actions = document.createElement("div");
     actions.className = "turn__buttons";
     const backBtn = document.createElement("button");
-    backBtn.className = "btn";
+    backBtn.className = "btn btn--back";
     backBtn.type = "button";
     backBtn.textContent = "Вернуться на предыдущий экран";
     backBtn.addEventListener("click", () => sendInput("services"));
@@ -204,6 +219,7 @@
 
     messagesEl.appendChild(turn);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    activeInteractive = turn;
   }
 
   function addUserTurn(text) {
@@ -223,13 +239,13 @@
     homeBtn.disabled = loading || currentMode !== "main_menu";
     faqBtn.disabled = loading;
     feedbackBtn.disabled = loading;
-    document.querySelectorAll(".turn__buttons .btn").forEach((btn) => {
-      btn.disabled = loading;
-      btn.classList.remove("is-loading");
-    });
   }
 
   async function sendInput(value, triggeringButton) {
+    // Раунд начался — кнопки/поля предыдущего сообщения блокируются навсегда,
+    // не только на время этого запроса (раньше все прошлые раунды разом
+    // включались обратно после каждого ответа — исправленный баг).
+    lockActiveInteractive();
     setLoading(true);
     if (triggeringButton) {
       triggeringButton.classList.add("is-loading");
