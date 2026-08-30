@@ -11,7 +11,6 @@ KNOWN_TOOLS = {
     "search_knowledge",
     "read_knowledge_file",
     "prepare_lead_draft",
-    "save_confirmed_lead",
 }
 
 
@@ -19,12 +18,53 @@ class ToolError(Exception):
     """Ошибка вызова инструмента или разбора его аргументов."""
 
 
-def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Заглушка диспетчера tools. Реальные реализации появятся в фазе
-    «Безопасные tools» (agent/tools.py). Whitelist уже проверяется здесь."""
+import agent.tools as agent_tools
+
+TOOL_ARGUMENT_SPECS: dict[str, tuple[set[str], set[str]]] = {
+    "search_knowledge": ({"query"}, set()),
+    "read_knowledge_file": ({"filename"}, set()),
+    "prepare_lead_draft": ({"service", "problem_text", "agent_summary"}, {"missing_info"}),
+}
+
+
+def _require_arguments(name: str, arguments: dict[str, Any]) -> None:
+    required, optional = TOOL_ARGUMENT_SPECS[name]
+    provided = set(arguments)
+
+    missing = required - provided
+    if missing:
+        raise ToolError(f"Не хватает аргументов tool `{name}`: {', '.join(sorted(missing))}.")
+
+    extra = provided - required - optional
+    if extra:
+        raise ToolError(f"Лишние аргументы tool `{name}`: {', '.join(sorted(extra))}.")
+
+
+def call_tool(
+    name: str,
+    arguments: dict[str, Any],
+    session_id: str,
+    session: dict[str, Any],
+) -> Any:
     if name not in KNOWN_TOOLS:
         raise ToolError(f"Неизвестный tool: {name}")
-    raise NotImplementedError(f"Tool '{name}' ещё не реализован (следующая фаза).")
+
+    _require_arguments(name, arguments)
+
+    if name == "search_knowledge":
+        return agent_tools.search_knowledge(arguments["query"])
+    if name == "read_knowledge_file":
+        return agent_tools.read_knowledge_file(arguments["filename"])
+    if name == "prepare_lead_draft":
+        return agent_tools.prepare_lead_draft(
+            session,
+            arguments["service"],
+            arguments["problem_text"],
+            arguments["agent_summary"],
+            arguments.get("missing_info"),
+        )
+
+    raise ToolError(f"Tool `{name}` не имеет диспетчеризации.")
 
 
 def _get_messages(
@@ -81,6 +121,8 @@ def _parse_arguments(raw_arguments: str) -> dict[str, Any]:
 def run_agent(
     user_task: str,
     system_prompt: str,
+    session_id: str,
+    session: dict[str, Any],
     conversation_history: list[dict[str, Any]] | None = None,
     tools: list[dict[str, Any]] | None = None,
 ) -> str:
@@ -106,7 +148,7 @@ def run_agent(
             try:
                 arguments = _parse_arguments(tool_call.function.arguments)
                 print(f"[tool] arguments: {json.dumps(arguments, ensure_ascii=True)}")
-                result = call_tool(tool_name, arguments)
+                result = call_tool(tool_name, arguments, session_id, session)
                 content = json.dumps(result, ensure_ascii=True)
             except (ToolError, NotImplementedError) as exc:
                 print(f"[refusal] {exc}")
@@ -129,7 +171,10 @@ if __name__ == "__main__":
     system_prompt = soul_path.read_text(encoding="utf-8")
 
     answer = run_agent(
-        user_task="Ответь одним словом: тест",
+        user_task="Расскажи, какие условия обязательно должны быть в договоре?",
         system_prompt=system_prompt,
+        session_id="selftest",
+        session={},
+        tools=agent_tools.TOOL_SCHEMAS,
     )
     print(f"[final] {answer}")

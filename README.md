@@ -54,6 +54,6 @@
 ### План реализации по слоям
 
 - **Interface** — `static/index.html`/`style.css`/`script.js` (без фреймворка), стилизовано по `docs/design-decisions.md`: главное меню, поле свободного текстового ввода, история сообщений в рамках сессии (подробности экранов и логики — `docs/bot-ux-flow.md`).
-- **Backend** — один Python runtime (FastAPI + uvicorn), `app.py` — единая точка запуска и эндпоинт `POST /api/chat`; `bot_flow.py` — обычный сценарий (каталог услуг, FAQ, заявка, обратная связь) без обращения к модели. ИИ-консультант на этом этапе показывает сообщение о временной недоступности (подключается в фазах «Безопасные tools»/«AI-сценарии»).
+- **Backend** — один Python runtime (FastAPI + uvicorn), `app.py` — единая точка запуска и эндпоинт `POST /api/chat`; `bot_flow.py` — обычный сценарий (каталог услуг, FAQ, заявка, обратная связь) без обращения к модели. ИИ-консультант на этом этапе показывает сообщение о временной недоступности — сам `app.py` пока не подключён к `agent_runtime.py` (безопасные tools уже реализованы и проверены, `Plan-tools.md`, но их вызов из веб-чата — фаза «AI-сценарии»).
 - **Database** — `db.py`, SQLite (`data/bot.sqlite3`, автосоздание при старте), таблицы `leads` и `feedback` с различимым `source` (`bot_flow` / `ai_consultant`).
 - **Agent** — `ai_client.py`, `agent_runtime.py`, `agent/tools.py` (`search_knowledge`, `read_knowledge_file`, `prepare_lead_draft`, `save_confirmed_lead`), `agent/soul.md`.
