@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ЮрСправочник</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <button class="header__title" id="home-link" type="button">ЮрСправочник</button>
+      <div class="header__actions">
+        <button class="btn" id="faq-btn" type="button">FAQ</button>
+        <button class="btn" id="feedback-btn" type="button">Обратная связь</button>
+      </div>
+    </header>
+
+    <main class="messages" id="messages"></main>
+
+    <form class="input-bar" id="input-form">
+      <input
+        class="input-bar__field"
+        id="input-field"
+        type="text"
+        placeholder="Введите сообщение"
+        autocomplete="off"
+      >
+      <button class="btn" id="send-btn" type="submit">Отправить</button>
+    </form>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
