@@ -6,8 +6,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import agent.tools as agent_tools
+import agent_runtime
 import bot_flow
 import db
+from ai_client import AIStudioError
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_DIR = PROJECT_ROOT / "static"
@@ -17,6 +20,8 @@ db.init_db()
 app = FastAPI()
 
 SESSIONS: dict[str, dict] = {}
+
+SOUL_PROMPT = (PROJECT_ROOT / "agent" / "soul.md").read_text(encoding="utf-8")
 
 
 def _back_button(value: str = "services") -> dict:
@@ -70,7 +75,12 @@ class ChatResponse(BaseModel):
 
 
 def _new_session() -> dict:
-    return {"mode": "main_menu", "flow_state": None}
+    return {
+        "mode": "main_menu",
+        "flow_state": None,
+        "ai_history": None,
+        "lead_draft": None,
+    }
 
 
 def _get_session(session_id: str | None) -> tuple[str, dict]:
@@ -160,6 +170,7 @@ def _buttons_for_lead_step(step: str | None) -> list[dict]:
 def _handle_main_menu(
     session: dict, session_id: str, user_input: str
 ) -> tuple[str, list[dict], bool, list[dict] | None, str | None]:
+    session["mode"] = "main_menu"
     if user_input == "services":
         reply, buttons = _render_services()
         return reply, buttons, False, None, None
@@ -203,7 +214,9 @@ def _handle_main_menu(
             "feedback",
         )
     if user_input == "ai":
-        return AI_UNAVAILABLE_REPLY, AI_UNAVAILABLE_BUTTONS, True, None, None
+        session["mode"] = "ai_consultant"
+        session["ai_history"] = []
+        return "", [_back_button("services")], False, None, None
     return bot_flow.handle_unknown_input(), [], False, None, None
 
 
@@ -235,6 +248,47 @@ def _handle_feedback_submit(
     return "Ваш отзыв направлен и будет рассмотрен.", [], False, None, None, None
 
 
+ESCALATION_PROMPT = (
+    "Пользователь хочет оставить заявку — подготовь черновик по итогам "
+    "нашего диалога, вызвав prepare_lead_draft."
+)
+
+
+def _handle_ai_consultant_chat(
+    session: dict, session_id: str, user_input: str
+) -> tuple[str, list[dict], bool, None, None]:
+    is_escalation = user_input == "ai_escalate"
+    outgoing_text = ESCALATION_PROMPT if is_escalation else user_input
+
+    try:
+        reply = agent_runtime.run_agent(
+            outgoing_text,
+            SOUL_PROMPT,
+            session_id,
+            session,
+            conversation_history=session["ai_history"],
+            tools=agent_tools.TOOL_SCHEMAS,
+        )
+    except AIStudioError:
+        return AI_UNAVAILABLE_REPLY, [_back_button("services")], True, None, None
+
+    if is_escalation and session.get("lead_draft"):
+        session["mode"] = "ai_confirm_problem"
+        problem_text = session["lead_draft"]["problem_text"]
+        preview = f"Вот как я понял ваш вопрос:\n\n{problem_text}"
+        buttons = [
+            {"label": "Уточнить вопрос", "value": "ai_refine_problem"},
+            {"label": "Да, это мой запрос", "value": "ai_accept_problem"},
+        ]
+        return preview, buttons, False, None, None
+
+    buttons = [
+        {"label": "Хочу оставить заявку", "value": "ai_escalate"},
+        _back_button("services"),
+    ]
+    return reply, buttons, False, None, None
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     session_id, session = _get_session(request.session_id)
@@ -246,6 +300,8 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
     elif session["mode"] == "lead_flow":
         reply, buttons, is_error, faq, form = _handle_lead_flow(session, session_id, request.input)
+    elif session["mode"] == "ai_consultant":
+        reply, buttons, is_error, faq, form = _handle_ai_consultant_chat(session, session_id, request.input)
     else:
         reply, buttons, is_error, faq, form = _handle_main_menu(session, session_id, request.input)
 

@@ -94,6 +94,13 @@ _MAIN_MENU_HINT = (
 )
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_RE = _EMAIL_RE  # публичный алиас для контакта ИИ-консультанта (app.py)
+
+
+def validate_contact_name(value: str) -> str | None:
+    if len(value.strip()) < 2:
+        return "Имя должно содержать не менее 2 символов."
+    return None
 
 
 def get_services() -> list[dict]:

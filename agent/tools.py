@@ -1,3 +1,4 @@
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -15,8 +16,13 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "search_knowledge",
             "description": (
-                "Ищет подстроку в базе знаний (services.md, faq.md, rules.md) "
-                "и возвращает список совпадений с указанием файла и фрагмента текста."
+                "Ищет ключевые слова в базе знаний (services.md, faq.md, rules.md) "
+                "и возвращает список совпадений с указанием файла и фрагмента текста. "
+                "Это простой поиск по грубому совпадению слов, а не по смыслу — если "
+                "поиск вернул пустой список или фрагмент не даёт достаточно деталей, "
+                "не повторяй похожие запросы несколько раз подряд: сразу читай "
+                "подходящий файл целиком через read_knowledge_file и делай вывод "
+                "из полного текста."
             ),
             "parameters": {
                 "type": "object",
@@ -165,20 +171,68 @@ def _extract_excerpt(content: str, start: int, end: int, radius: int = EXCERPT_R
     return f"{prefix}{excerpt}{suffix}"
 
 
+MIN_QUERY_WORD_LENGTH = 3
+MAX_STEM_STRIP = 3  # русские падежные/родовые окончания редко длиннее 3 символов
+STOPWORDS = {
+    "как", "что", "или", "для", "при", "это", "если", "когда", "может",
+    "нужно", "его", "она", "они", "нам", "вам", "кто", "чем",
+}
+
+
+def _normalize_text(text: str) -> str:
+    return text.lower().replace("ё", "е")
+
+
+def _split_query_words(query: str) -> list[str]:
+    words = re.findall(r"[а-яa-z0-9-]+", _normalize_text(query))
+    return [w for w in words if len(w) >= MIN_QUERY_WORD_LENGTH and w not in STOPWORDS]
+
+
+def _find_word_stem(content: str, word: str) -> int:
+    # От точного слова к более грубой обрезке окончания — берём первое (самое
+    # точное, самое длинное) совпадение, не короче MIN_QUERY_WORD_LENGTH и не
+    # обрезая больше MAX_STEM_STRIP символов, чтобы не терять смысл слова.
+    min_length = max(MIN_QUERY_WORD_LENGTH, len(word) - MAX_STEM_STRIP)
+    for length in range(len(word), min_length - 1, -1):
+        index = content.find(word[:length])
+        if index != -1:
+            return index
+    return -1
+
+
 def search_knowledge(query: str) -> list[dict[str, str]]:
     normalized_query = _validate_string(query, "query")
-    lowered_query = normalized_query.lower()
+    lowered_query = _normalize_text(normalized_query)
+    words = _split_query_words(normalized_query)
+    if not words:
+        raise ToolError("Запрос должен содержать хотя бы одно значимое слово.")
+
+    # Сначала самые длинные (обычно самые специфичные) слова — если по ним
+    # находится совпадение, оно даёт более точный, менее «размытый» фрагмент,
+    # чем по короткому общему слову вроде «условия».
+    words_by_specificity = sorted(words, key=len, reverse=True)
 
     matches: list[dict[str, str]] = []
     for filename in sorted(ALLOWED_KNOWLEDGE_FILES):
         content = (KNOWLEDGE_DIR / filename).read_text(encoding="utf-8")
-        lowered_content = content.lower()
+        lowered_content = _normalize_text(content)
+
+        # Слой 1: точная фраза целиком — самый точный, самый узкий фрагмент,
+        # когда он находится (модель нередко цитирует уже прочитанный текст).
         index = lowered_content.find(lowered_query)
-        if index == -1:
+        if index != -1:
+            excerpt = _extract_excerpt(content, index, index + len(normalized_query))
+            matches.append({"file": filename, "excerpt": excerpt})
             continue
 
-        excerpt = _extract_excerpt(content, index, index + len(normalized_query))
-        matches.append({"file": filename, "excerpt": excerpt})
+        # Слой 2: запасной вариант — по одному, самому специфичному слову
+        # запроса, с грубым учётом падежных окончаний.
+        for word in words_by_specificity:
+            position = _find_word_stem(lowered_content, word)
+            if position != -1:
+                excerpt = _extract_excerpt(content, position, position + len(word))
+                matches.append({"file": filename, "excerpt": excerpt})
+                break
 
     return matches
 
