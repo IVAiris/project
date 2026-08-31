@@ -72,6 +72,7 @@ class ChatResponse(BaseModel):
     mode: str
     form: str | None = None
     form_errors: dict[str, str] | None = None
+    prefill_input: str | None = None
 
 
 def _new_session() -> dict:
@@ -289,19 +290,85 @@ def _handle_ai_consultant_chat(
     return reply, buttons, False, None, None
 
 
+def _handle_ai_confirm_problem(
+    session: dict, session_id: str, user_input: str
+) -> tuple[str, list[dict], bool, None, None, str | None]:
+    if user_input == "ai_refine_problem":
+        session["mode"] = "ai_edit_problem"
+        prefill = session["lead_draft"]["problem_text"]
+        return "Опишите суть вопроса ещё раз.", [_back_button("services")], False, None, None, prefill
+
+    if user_input == "ai_accept_problem":
+        session["mode"] = "ai_contact_name"
+        return "Как к Вам обращаться?", [_back_button("services")], False, None, None, None
+
+    buttons = [
+        {"label": "Уточнить вопрос", "value": "ai_refine_problem"},
+        {"label": "Да, это мой запрос", "value": "ai_accept_problem"},
+    ]
+    return (
+        "Выберите одно из действий: «Уточнить вопрос», «Да, это мой запрос».",
+        buttons,
+        True,
+        None,
+        None,
+        None,
+    )
+
+
+def _handle_ai_edit_problem(
+    session: dict, session_id: str, user_input: str
+) -> tuple[str, list[dict], bool, None, None]:
+    text = user_input.strip()
+    if not text:
+        return (
+            "Описание задачи не может быть пустым. Опишите суть вопроса.",
+            [_back_button("services")],
+            True,
+            None,
+            None,
+        )
+
+    session["lead_draft"]["problem_text"] = text
+    session["mode"] = "ai_contact_name"
+    return "Как к Вам обращаться?", [_back_button("services")], False, None, None
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     session_id, session = _get_session(request.session_id)
     form_errors = None
+    prefill_input = None
+
+    ai_modes = {
+        "ai_consultant",
+        "ai_confirm_problem",
+        "ai_edit_problem",
+        "ai_contact_name",
+        "ai_contact_email",
+        "ai_lead_confirm",
+    }
 
     if request.input == "feedback_submit":
         reply, buttons, is_error, faq, form, form_errors = _handle_feedback_submit(
             request.payload, session_id
         )
+    elif request.input == "services" and session["mode"] in ai_modes:
+        # Кнопка "Вернуться" из любого режима ИИ-консультанта — перехватывается
+        # здесь, до диспетчеризации по режиму, иначе "services" ушло бы в
+        # соответствующий обработчик как обычный ввод (для ai_consultant —
+        # буквально как вопрос модели).
+        reply, buttons, is_error, faq, form = _handle_main_menu(session, session_id, request.input)
     elif session["mode"] == "lead_flow":
         reply, buttons, is_error, faq, form = _handle_lead_flow(session, session_id, request.input)
     elif session["mode"] == "ai_consultant":
         reply, buttons, is_error, faq, form = _handle_ai_consultant_chat(session, session_id, request.input)
+    elif session["mode"] == "ai_confirm_problem":
+        reply, buttons, is_error, faq, form, prefill_input = _handle_ai_confirm_problem(
+            session, session_id, request.input
+        )
+    elif session["mode"] == "ai_edit_problem":
+        reply, buttons, is_error, faq, form = _handle_ai_edit_problem(session, session_id, request.input)
     else:
         reply, buttons, is_error, faq, form = _handle_main_menu(session, session_id, request.input)
 
@@ -314,6 +381,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         mode=session["mode"],
         form=form,
         form_errors=form_errors,
+        prefill_input=prefill_input,
     )
 
 
