@@ -278,6 +278,9 @@
     currentMode = data.mode;
 
     addBotTurn(data.reply, data.buttons, data.is_error, data.faq, data.form);
+    if (data.prefill_input) {
+      inputEl.value = data.prefill_input;
+    }
     setLoading(false);
   }
 

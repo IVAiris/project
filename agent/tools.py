@@ -10,6 +10,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = PROJECT_ROOT / "knowledge"
 ALLOWED_KNOWLEDGE_FILES = {"services.md", "faq.md", "rules.md"}
 
+# "other" — служебное значение только контракта prepare_lead_draft (вопрос
+# вне трёх услуг каталога), не бизнес-услуга bot_flow — сознательно не
+# входит в bot_flow.SERVICES/_SERVICES_BY_KEY, чтобы не быть доступным как
+# выбор услуги в bot-flow-визарде "Оставить заявку" (Plan-ai-scenarios.md,
+# Шаг 7.1 — там же история находки: bot_flow.get_service_card("other") ранее
+# ошибочно принимал это значение как настоящую услугу визарда).
+OTHER_SERVICE_NAME = "Вопрос вне каталога услуг"
+
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -72,8 +80,12 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "service": {
                         "type": "string",
-                        "enum": ["contracts", "pdn", "deals"],
-                        "description": "Ключ подходящей услуги из каталога.",
+                        "enum": ["contracts", "pdn", "deals", "other"],
+                        "description": (
+                            "Ключ подходящей услуги из каталога. Если вопрос не "
+                            "относится ни к одной из трёх услуг — используй "
+                            "\"other\", но всё равно готовь черновик."
+                        ),
                     },
                     "problem_text": {
                         "type": "string",
@@ -253,10 +265,11 @@ def prepare_lead_draft(
     missing_info: str | None = None,
 ) -> dict[str, Any]:
     service_key = _validate_string(service, "service")
-    try:
-        bot_flow.get_service_card(service_key)
-    except ValueError as exc:
-        raise ToolError(str(exc)) from exc
+    if service_key != "other":
+        try:
+            bot_flow.get_service_card(service_key)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
 
     draft = {
         "service": service_key,
