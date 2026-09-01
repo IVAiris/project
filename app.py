@@ -10,6 +10,7 @@ import agent.tools as agent_tools
 import agent_runtime
 import bot_flow
 import db
+from agent_runtime import ToolError
 from ai_client import AIStudioError
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -218,7 +219,14 @@ def _handle_main_menu(
         session["mode"] = "ai_consultant"
         session["ai_history"] = []
         return "", [_back_button("services")], False, None, None
-    return bot_flow.handle_unknown_input(), [], False, None, None
+    unknown_buttons = [
+        {"label": "Услуги", "value": "services"},
+        {"label": "FAQ", "value": "faq"},
+        {"label": "Оставить заявку", "value": "lead"},
+        {"label": "Перейти к ИИ-консультанту", "value": "ai"},
+        {"label": "Обратная связь", "value": "feedback"},
+    ]
+    return bot_flow.handle_unknown_input(), unknown_buttons, False, None, None
 
 
 def _handle_lead_flow(
@@ -334,6 +342,127 @@ def _handle_ai_edit_problem(
     return "Как к Вам обращаться?", [_back_button("services")], False, None, None
 
 
+def _handle_ai_contact_name(
+    session: dict, session_id: str, user_input: str
+) -> tuple[str, list[dict], bool, None, None]:
+    name = user_input.strip()
+    error = bot_flow.validate_contact_name(name)
+    if error:
+        return f"{error} Как к Вам обращаться?", [_back_button("services")], True, None, None
+
+    session["ai_contact_name_value"] = name
+    session["mode"] = "ai_contact_email"
+    return "Укажите корпоративную почту.", [_back_button("services")], False, None, None
+
+
+def _handle_ai_contact_email(
+    session: dict, session_id: str, user_input: str
+) -> tuple[str, list[dict], bool, None, None]:
+    email = user_input.strip()
+    if not bot_flow.EMAIL_RE.match(email):
+        return (
+            "Некорректный формат почты. Укажите корпоративную почту.",
+            [_back_button("services")],
+            True,
+            None,
+            None,
+        )
+
+    name = session.pop("ai_contact_name_value")
+    session["lead_draft"]["contact"] = f"{name} | {email}"
+    session["mode"] = "ai_lead_confirm"
+    return _render_ai_lead_confirm(session)
+
+
+def _service_display_name(service_key: str) -> str:
+    # "other" — служебное значение только контракта prepare_lead_draft
+    # (Plan-ai-scenarios.md, Шаг 7.1), bot_flow о нём не знает и не должен —
+    # get_service_card("other") намеренно выбрасывает ValueError.
+    if service_key == "other":
+        return agent_tools.OTHER_SERVICE_NAME
+    return bot_flow.get_service_card(service_key)["name"]
+
+
+def _render_ai_lead_confirm(session: dict) -> tuple[str, list[dict], bool, None, None]:
+    draft = session["lead_draft"]
+    reply = (
+        f'От: {draft["contact"]}\n'
+        f'Тема: {_service_display_name(draft["service"])}\n'
+        f'Заявка на предоставление консультации по вопросу: {draft["problem_text"]}\n\n'
+        f'Что уже известно: {draft["agent_summary"]}\n'
+        f'Чего не хватает: {draft["missing_info"] or "—"}'
+    )
+    buttons = [
+        {"label": "Отправить заявку", "value": "ai_lead_submit"},
+        {"label": "Изменить", "value": "ai_lead_refine"},
+        {"label": "Отмена", "value": "ai_lead_cancel"},
+    ]
+    return reply, buttons, False, None, None
+
+
+def _handle_ai_lead_confirm(
+    session: dict, session_id: str, user_input: str
+) -> tuple[str, list[dict], bool, None, None]:
+    if user_input == "ai_lead_submit":
+        try:
+            result = agent_tools.save_confirmed_lead(session_id, session)
+        except ToolError:
+            reply, buttons, _, _, _ = _render_ai_lead_confirm(session)
+            return (
+                "Не удалось сохранить заявку — попробуйте ещё раз.\n\n" + reply,
+                buttons,
+                True,
+                None,
+                None,
+            )
+
+        session["mode"] = "main_menu"
+        if "already_sent" in result:
+            return "Заявка уже отправлена.", [], False, None, None
+
+        return (
+            "Ваша заявка направлена в Юридическую службу. "
+            f'Ей присвоен номер {result["lead_id"]}.',
+            [],
+            False,
+            None,
+            None,
+        )
+
+    if user_input == "ai_lead_refine":
+        session["mode"] = "ai_consultant"
+        return (
+            "Хорошо, уточните вопрос текстом — я продолжу диалог.",
+            [_back_button("services")],
+            False,
+            None,
+            None,
+        )
+
+    if user_input == "ai_lead_cancel":
+        session["lead_draft"] = None
+        session["mode"] = "main_menu"
+        return "Заявка отменена. Черновик не сохранён.", [], False, None, None
+
+    if not session.get("lead_draft"):
+        # Не должно происходить штатно (mode="ai_lead_confirm" всегда
+        # устанавливается вместе с заполненным lead_draft), но без этой
+        # проверки нераспознанный ввод в этом маловероятном состоянии
+        # уронил бы процесс необработанным TypeError на draft["contact"]
+        # внутри _render_ai_lead_confirm.
+        session["mode"] = "main_menu"
+        return "Черновик заявки не найден. Начните заново.", [], True, None, None
+
+    reply, buttons, _, _, _ = _render_ai_lead_confirm(session)
+    return (
+        'Выберите одно из действий: «Отправить заявку», «Изменить», «Отмена».',
+        buttons,
+        True,
+        None,
+        None,
+    )
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     session_id, session = _get_session(request.session_id)
@@ -369,6 +498,12 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
     elif session["mode"] == "ai_edit_problem":
         reply, buttons, is_error, faq, form = _handle_ai_edit_problem(session, session_id, request.input)
+    elif session["mode"] == "ai_contact_name":
+        reply, buttons, is_error, faq, form = _handle_ai_contact_name(session, session_id, request.input)
+    elif session["mode"] == "ai_contact_email":
+        reply, buttons, is_error, faq, form = _handle_ai_contact_email(session, session_id, request.input)
+    elif session["mode"] == "ai_lead_confirm":
+        reply, buttons, is_error, faq, form = _handle_ai_lead_confirm(session, session_id, request.input)
     else:
         reply, buttons, is_error, faq, form = _handle_main_menu(session, session_id, request.input)
 
