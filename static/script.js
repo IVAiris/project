@@ -173,6 +173,7 @@
 
       sessionId = data.session_id;
       currentMode = data.mode;
+      inputEl.disabled = !data.input_active;
       submitBtn.disabled = false;
       submitBtn.classList.remove("is-loading");
 
@@ -276,6 +277,7 @@
 
     sessionId = data.session_id;
     currentMode = data.mode;
+    inputEl.disabled = !data.input_active;
 
     addBotTurn(data.reply, data.buttons, data.is_error, data.faq, data.form);
     if (data.prefill_input) {

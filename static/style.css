@@ -321,6 +321,15 @@ textarea.form__input {
   padding: calc(var(--space-3) - 1px) calc(var(--space-4) - 1px);
 }
 
+.input-bar__field:disabled {
+  background: var(--jr-cream);
+  color: rgba(138, 138, 138, 0.5);
+}
+
+.input-bar__field:disabled::placeholder {
+  color: rgba(138, 138, 138, 0.5);
+}
+
 .annotation {
   font-style: italic;
   color: var(--jr-text-muted);

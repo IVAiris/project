@@ -74,6 +74,7 @@ class ChatResponse(BaseModel):
     form: str | None = None
     form_errors: dict[str, str] | None = None
     prefill_input: str | None = None
+    input_active: bool = False
 
 
 def _new_session() -> dict:
@@ -167,6 +168,24 @@ def _buttons_for_lead_step(step: str | None) -> list[dict]:
             _back_button("back"),
         ]
     return [_back_button("back")]
+
+
+# Режимы, где ожидается ввод текста (запрос/контакт) — экран «ИИ-консультант».
+# Остальные session["mode"] (main_menu, ai_confirm_problem, ai_lead_confirm)
+# и lead_flow-шаги вне TEXT_INPUT_LEAD_STEPS — кнопочные, поле там не нужно
+# (Plan-ai-scenarios.md, Шаг 10.1, по прямому запросу пользователя не
+# отражать разницу строкой mode на глаз, а решать централизованно и точно).
+TEXT_INPUT_MODES = {"ai_consultant", "ai_edit_problem", "ai_contact_name", "ai_contact_email"}
+TEXT_INPUT_LEAD_STEPS = {"lead_problem", "lead_name", "lead_email"}
+
+
+def _is_input_active(session: dict) -> bool:
+    mode = session["mode"]
+    if mode == "lead_flow":
+        flow_state = session.get("flow_state")
+        step = flow_state["step"] if flow_state else None
+        return step in TEXT_INPUT_LEAD_STEPS
+    return mode in TEXT_INPUT_MODES
 
 
 def _handle_main_menu(
@@ -517,6 +536,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         form=form,
         form_errors=form_errors,
         prefill_input=prefill_input,
+        input_active=_is_input_active(session),
     )
 
 
