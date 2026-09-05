@@ -57,3 +57,76 @@
 - **Backend** — один Python runtime (FastAPI + uvicorn), `app.py` — единая точка запуска и эндпоинт `POST /api/chat`; `bot_flow.py` — обычный сценарий (каталог услуг, FAQ, заявка, обратная связь) без обращения к модели. ИИ-консультант подключён к `agent_runtime.py` — свободный чат по базе знаний, эскалация («Хочу оставить заявку»), сбор контакта и сохранение заявки с `source="ai_consultant"` (фаза «AI-сценарии», `docs/archive/Plan-ai-scenarios.md`, закрыта и проверена реальным сквозным прогоном).
 - **Database** — `db.py`, SQLite (`data/bot.sqlite3`, автосоздание при старте), таблицы `leads` и `feedback` с различимым `source` (`bot_flow` / `ai_consultant`).
 - **Agent** — `ai_client.py`, `agent_runtime.py`, `agent/tools.py` (`search_knowledge`, `read_knowledge_file`, `prepare_lead_draft`, `save_confirmed_lead`), `agent/soul.md`.
+
+### Подготовка окружения
+
+Целевая ветка — Python 3.13.x (см. `spec.md`, раздел 13). На реальной VPS (Ubuntu 24.04) Python 3.13 недоступен из официальных репозиториев `apt` — только 3.12 и 3.11; получить 3.13 можно было бы лишь через сторонний репозиторий `deadsnakes PPA`, что решено не делать (лишняя зависимость от внешнего источника пакетов ради минимального технического риска). Проект проверен и работает на Python 3.12 (подтверждено реальным деплоем — `docs/archive/Plan-vps.md`, Шаг 3), так как все зависимости требуют только `>=3.10`, а код не использует синтаксис, специфичный для 3.11+/3.12+/3.13. Из корня `project/`:
+
+**macOS/Linux:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### Настройка `.env`
+
+Скопируйте шаблон и заполните реальными значениями (файл не коммитится):
+```bash
+cp .env.example .env
+```
+Список переменных и их назначение — в `.env.example`.
+
+### Запуск приложения
+
+```bash
+uvicorn app:app --reload
+```
+Приложение слушает `http://127.0.0.1:8000/` (порт задаётся дефолтом uvicorn, в коде не переопределён).
+
+### SQLite
+
+Инициализация полностью автоматическая: `db.init_db()` вызывается при каждом старте приложения и создаёт `data/bot.sqlite3` с таблицами `leads`/`feedback` (`CREATE TABLE IF NOT EXISTS`), если их ещё нет. Отдельный шаг инициализации не требуется.
+
+### Логи
+
+При локальном запуске отдельного лог-файла нет — весь вывод uvicorn идёт в тот же терминал, где выполнена команда запуска.
+
+Помимо стандартных строк uvicorn (`INFO: ...`), в этом же выводе видны теги agent loop из `agent_runtime.py`: `[task]` — полученная задача, `[loop] step N` — номер шага, `[tool] selected/arguments` — вызванный tool и аргументы, `[refusal]` — отказ модели или остановка по `MAX_STEPS`. Секреты в эти теги не попадают.
+
+На VPS используется другой паттерн — вывод перенаправляется в файл (см. ниже, раздел «Запуск на VPS»).
+
+### Остановка и повторный запуск
+
+Локально: `Ctrl+C` в терминале, затем повторно `uvicorn app:app --reload`.
+
+### Запуск на VPS
+
+Проект развёрнут и проверен на реальной VPS (Ubuntu 24.04, Python 3.12.3 — отклонение от целевой ветки 3.13.x зафиксировано и принято, см. `docs/archive/Plan-vps.md`, Шаг 3). Деплой: `git clone`, `venv`, `pip install -r requirements.txt`, `.env` заполнен на сервере, запуск в фоне:
+```bash
+nohup .venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000 > logs/app.log 2>&1 &
+disown
+echo $! > app.pid
+```
+Логи — `tail -n 50 logs/app.log`. Остановка — `kill "$(cat app.pid)"`. Повторный запуск после остановки подтверждён без ошибок (`docs/archive/Plan-vps.md`, Шаг 6).
+
+### Спецификация MVP
+
+Полная спецификация — `spec.md`. Краткое резюме: чат-бот с ИИ-консультантом для юридического департамента, три предметные услуги (согласование договоров, 152-ФЗ, согласование сделок), обычный bot-flow + ИИ-консультант с confirmation flow, SQLite-хранилище, деплой как единый Python runtime.
+
+### Tools ИИ-консультанта и ограничения
+
+Доступные tools (`agent/tools.py`): `search_knowledge`, `read_knowledge_file`, `prepare_lead_draft`, `save_confirmed_lead`.
+
+Ограничения — см. выше, раздел «Ограничения ИИ-консультанта».
+
+### Проверка биллинга и лимитов AI Studio
+
+Проверка выполнена на этапе первого подключения к API — баланс и лимиты подтверждены скриншотом «первый запрос через API.png» одновременно с успешным ответом модели (`docs/archive/Plan-runtime.md`, Шаг соответствующей фазы).
